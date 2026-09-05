@@ -67,7 +67,10 @@ def _provider_command(provider: str) -> str:
     resolved = shutil.which(configured or provider)
     if resolved is None:
         raise CollectorError(f"{provider} was not found; set AI_USAGE_PROVIDER_BIN")
-    return str(Path(resolved).resolve())
+    # Keep the provider's stable launcher: auto-updaters retarget its symlink
+    # and remove old version files. Persisting the dereferenced target strands
+    # the collector on the next cleanup, even while the provider still works.
+    return str(Path(resolved).absolute())
 
 
 def _raw_config(provider: str, path: Path, manifest_path: Path) -> dict[str, Any]:

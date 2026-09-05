@@ -14,6 +14,28 @@ EDGE_DIR = Path(__file__).resolve().parent
 
 
 class InstallerTests(unittest.TestCase):
+    def test_provider_launcher_survives_version_rotation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = self.environment(root, "claude", "desktop-a")
+            old = root / "claude-v1"
+            new = root / "claude-v2"
+            launcher = root / "claude"
+            for path, version in [(old, "v1"), (new, "v2")]:
+                path.write_text(f"#!/bin/sh\necho {version}\n")
+                path.chmod(0o755)
+            launcher.symlink_to(old)
+            environment["AI_USAGE_PROVIDER_BIN"] = str(launcher)
+            self.run_installer("claude", environment)
+            config = json.loads(
+                (Path(environment["CLAUDE_CONFIG_DIR"]) / "ai-usage/config.json").read_text()
+            )
+            launcher.unlink()
+            launcher.symlink_to(new)
+            old.unlink()
+            result = subprocess.run(config["provider_command"], check=True, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), "v2")
+
     def test_systemd_arguments_escape_literal_percent_specifiers(self):
         self.assertEqual(
             _systemd_quote("/tmp/100%/collector"), '"/tmp/100%%/collector"'
