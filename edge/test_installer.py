@@ -240,5 +240,58 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(manifest_path.read_bytes(), before_manifest)
 
 
+@unittest.skipIf(sys.platform == "darwin", "systemd units are written on Linux only")
+class SystemdTimerTests(unittest.TestCase):
+    """The unit the 2026-09-06 pop-os outage was fought over has had no test.
+
+    Both defective shapes it went through are inert-directive bugs that read as
+    fixes, so these assert the contract systemd.timer(5) actually gives, not the
+    bytes: a schedule that exists, and catch-up that is defined rather than
+    silently ignored.
+    """
+
+    def timer_unit(self, profile_id: str) -> str:
+        with tempfile.TemporaryDirectory() as temporary:
+            installer_tests = InstallerTests()
+            environment = installer_tests.environment(
+                Path(temporary), "grok", profile_id
+            )
+            installer_tests.run_installer("grok", environment)
+            return (
+                Path(environment["XDG_CONFIG_HOME"])
+                / "systemd"
+                / "user"
+                / f"is.sokrates.ai-usage.grok.{profile_id}.timer"
+            ).read_text()
+
+    def test_the_collector_timer_schedules_and_catches_up(self):
+        content = self.timer_unit("grok-timer")
+        directives = dict(
+            line.split("=", 1)
+            for line in content.splitlines()
+            if "=" in line and not line.startswith("#")
+        )
+
+        self.assertEqual(directives.get("OnCalendar"), "*:*:00")
+        self.assertEqual(directives.get("WantedBy"), "timers.target")
+        # Persistent= is documented to have an effect on OnCalendar= timers
+        # only. Set beside a purely monotonic schedule it is inert, which is
+        # what made the pre-reboot unit look like it would recover and not.
+        if "Persistent" in directives:
+            self.assertIn(
+                "OnCalendar",
+                directives,
+                "Persistent= without OnCalendar= is silently ignored by systemd",
+            )
+
+    def test_the_collector_timer_carries_no_dominated_trigger(self):
+        content = self.timer_unit("grok-dominated")
+        # OnStartupSec= (user-manager start + 15s) is never earlier than
+        # OnBootSec= (boot + 15s), and systemd triggers on the earliest of the
+        # configured expressions, so it cannot change when this timer fires.
+        # That pairing was the round-1 P1 on this unit.
+        self.assertNotIn("OnStartupSec", content)
+
+
 if __name__ == "__main__":
     unittest.main()
