@@ -231,8 +231,17 @@ def _service_install(config: CollectorConfig, install_root: Path) -> tuple[str, 
             f"Description=Run AI Usage {config.provider} collector every minute",
             "",
             "[Timer]",
-            "OnBootSec=15s",
-            "OnUnitActiveSec=60s",
+            # One wall-clock elapse point per minute, not a pair of monotonic
+            # ones. The monotonic shape (OnBootSec + OnUnitActiveSec) went
+            # silent for 34h across the pop-os reboot of 2026-09-06 with the
+            # timer ACTIVE and its OnBootSec deadline already in the past, so
+            # no further monotonic directive repairs it. A calendar timer has a
+            # next elapse point by construction, computed from the wall clock
+            # with no boot-relative base and no dependence on the last-trigger
+            # stamp; and Persistent= is only defined for OnCalendar= timers
+            # (systemd.timer(5)), so here it finally means what it says —
+            # catch up one missed run after a suspend or a reboot.
+            "OnCalendar=*:*:00",
             "AccuracySec=5s",
             "Persistent=true",
             f"Unit={service_name}.service",
