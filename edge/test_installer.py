@@ -240,5 +240,102 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(manifest_path.read_bytes(), before_manifest)
 
 
+# The monotonic triggers of systemd.timer(5). Any of them beside the wall-clock
+# schedule reintroduces a boot-relative elapse point — the shape that went
+# silent for 34h across the 2026-09-06 pop-os reboot — and OnStartupSec= in
+# particular is dominated by OnBootSec=, since the manager starts after the boot
+# it is started by, so it can never move this timer's elapse point at all.
+MONOTONIC_TRIGGERS = frozenset(
+    {
+        "OnActiveSec",
+        "OnBootSec",
+        "OnStartupSec",
+        "OnUnitActiveSec",
+        "OnUnitInactiveSec",
+    }
+)
+
+
+def unit_sections(content: str) -> dict[str, dict[str, list[str]]]:
+    """Read a unit file the way systemd reads it: per section, values ordered.
+
+    A flat key-to-value fold cannot see an inert directive, which is the whole
+    class this suite exists to convict: `WantedBy=timers.target` written under
+    `[Timer]` is ignored, the unit is never linked into `timers.target.wants`,
+    and a section-blind parse still finds the expected value and passes. Values
+    are lists because a repeated directive accumulates rather than overwrites,
+    so a second assignment cannot hide behind last-wins either.
+    """
+    sections: dict[str, dict[str, list[str]]] = {}
+    section: dict[str, list[str]] = {}
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = sections.setdefault(line[1:-1], {})
+        elif "=" in line:
+            key, value = line.split("=", 1)
+            section.setdefault(key.strip(), []).append(value.strip())
+    return sections
+
+
+@unittest.skipIf(sys.platform == "darwin", "systemd units are written on Linux only")
+class SystemdTimerTests(unittest.TestCase):
+    """The unit the 2026-09-06 pop-os outage was fought over has had no test.
+
+    Every defective shape it went through is an inert directive that reads as a
+    fix — a `Persistent=` with no `OnCalendar=` to apply to, an `OnStartupSec=`
+    dominated by the `OnBootSec=` beside it — so these assert the contract
+    systemd.timer(5) actually gives, in the sections that give it: a schedule
+    that exists, catch-up that is defined rather than silently ignored, and an
+    enablement that survives the next boot.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.TemporaryDirectory() as temporary:
+            installer_tests = InstallerTests()
+            environment = installer_tests.environment(
+                Path(temporary), "grok", "grok-timer"
+            )
+            installer_tests.run_installer("grok", environment)
+            content = (
+                Path(environment["XDG_CONFIG_HOME"])
+                / "systemd"
+                / "user"
+                / "is.sokrates.ai-usage.grok.grok-timer.timer"
+            ).read_text()
+        cls.sections = unit_sections(content)
+
+    def test_the_collector_timer_schedules_and_catches_up(self):
+        timer = self.sections.get("Timer", {})
+        # Exactly one wall-clock elapse point: OnCalendar= accumulates when it
+        # is repeated, so the list pins that nothing was added beside it.
+        self.assertEqual(timer.get("OnCalendar"), ["*:*:00"])
+        # Persistent= is defined for OnCalendar= timers only, and required here
+        # rather than tolerated — dropping it or setting it false silently
+        # removes the missed-run catch-up this unit advertises, which is the
+        # promise the pre-reboot unit made and systemd never agreed to.
+        self.assertEqual(timer.get("Persistent"), ["true"])
+
+    def test_the_collector_timer_is_enabled_for_future_boots(self):
+        # WantedBy= is an [Install] directive. Under [Timer] systemd ignores
+        # it, `systemctl --user enable` links nothing, and the timer does not
+        # come back after a reboot — inert in exactly the way the two schedule
+        # bugs were, and invisible to a parse that does not track sections.
+        self.assertEqual(
+            self.sections.get("Install", {}).get("WantedBy"), ["timers.target"]
+        )
+
+    def test_the_collector_timer_carries_no_monotonic_trigger(self):
+        # The cure was deleting the monotonic pair, not out-scheduling it, so
+        # the assertion is the deletion: no boot-relative trigger returns under
+        # any name, rather than a blacklist of the one that was caught.
+        self.assertEqual(
+            sorted(MONOTONIC_TRIGGERS & self.sections.get("Timer", {}).keys()), []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
