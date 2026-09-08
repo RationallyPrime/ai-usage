@@ -1236,7 +1236,15 @@ export class UsageStore {
         const oldResetMs = Date.parse(previous.resets_at);
         const incomingResetMs = Date.parse(incoming.resets_at);
         if (incomingResetMs <= oldResetMs) return "invalid_reset";
-        if (incomingMs + this.options.resetSkewMs < oldResetMs) return "invalid_reset";
+        // Codex can renew a quota window before its scheduled expiry (for
+        // example, a redeemed usage reset). A newer account-bound provider
+        // reading with a later boundary is the new generation's evidence.
+        const codexAccountRenewal = observation.provider === "codex"
+          && observation.provider_subject !== null
+          && observation.provider_subject === pool.subject_digest
+          && incomingMs > existingMs
+          && incomingResetMs > incomingMs;
+        if (incomingMs + this.options.resetSkewMs < oldResetMs && !codexAccountRenewal) return "invalid_reset";
       }
     }
 

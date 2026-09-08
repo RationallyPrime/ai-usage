@@ -327,21 +327,24 @@ describe("UsageStore schema-3 reconciliation", () => {
     store.close();
   });
 
-  test("accepts a lower value only after a legitimate reset generation", async () => {
+  test("a subjectless reading needs the old quota boundary to pass before resetting", async () => {
     const { store } = await freshStore();
-    // Use Codex here to isolate the provider-neutral reset-generation rule;
-    // Claude additionally preserves contradictory identity evidence in a
-    // provisional pool, which has its own falsifier below.
+    // Without an account binding, a changed boundary alone is not proof of
+    // a provider-issued early quota renewal.
     store.ingest(observation({
       provider: "codex",
       pool_label: "Codex · Pro",
       sequence: 1,
+      provider_subject: null,
+      identity_evidence: "unknown",
       windows: windows(0.9),
     }), "2026-08-15T15:30:01Z");
     const premature = store.ingest(observation({
       provider: "codex",
       pool_label: "Codex · Pro",
       sequence: 2,
+      provider_subject: null,
+      identity_evidence: "unknown",
       sampled_at: "2026-08-15T17:00:00Z",
       observed_at: "2026-08-15T17:00:01Z",
       windows: windows(0.03, "2026-08-15T23:00:00Z"),
@@ -353,6 +356,8 @@ describe("UsageStore schema-3 reconciliation", () => {
       provider: "codex",
       pool_label: "Codex · Pro",
       sequence: 3,
+      provider_subject: null,
+      identity_evidence: "unknown",
       sampled_at: "2026-08-15T18:01:00Z",
       observed_at: "2026-08-15T18:01:01Z",
       windows: windows(0.03, "2026-08-15T17:00:00Z"),
@@ -364,12 +369,37 @@ describe("UsageStore schema-3 reconciliation", () => {
       provider: "codex",
       pool_label: "Codex · Pro",
       sequence: 4,
+      provider_subject: null,
+      identity_evidence: "unknown",
       sampled_at: "2026-08-15T18:02:00Z",
       observed_at: "2026-08-15T18:02:01Z",
       windows: windows(0.03, "2026-08-15T23:00:00Z"),
     }), "2026-08-15T18:02:02Z");
     expect(afterBoundary.outcome).toBe("accepted");
     expect(store.snapshot("2026-08-15T18:03:00Z").pools[0]?.windows[0]?.utilization).toBe(0.03);
+    store.close();
+  });
+
+  test("Codex account renewal replaces a weekly window before its scheduled expiry", async () => {
+    const { store } = await freshStore();
+    const weekly = (used: number, reset: string): UsageWindow[] => [{ id: "seven-day", label: "7d", duration_minutes: 10080, utilization: used, resets_at: reset }];
+    const base = { provider: "codex", pool_label: "Codex · Pro" };
+    store.ingest(observation({ ...base, sequence: 1, sampled_at: "2026-09-05T02:07:22Z", observed_at: "2026-09-05T02:07:22Z",
+      windows: weekly(0.9, "2026-09-07T02:45:17Z") }), "2026-09-05T02:07:23Z");
+    const renewed = store.ingest(observation({ ...base, sequence: 2, sampled_at: "2026-09-05T18:25:00Z", observed_at: "2026-09-05T18:25:00Z",
+      windows: weekly(0.21, "2026-09-12T02:09:00Z") }), "2026-09-05T18:25:01Z");
+    expect(renewed.outcome).toBe("accepted");
+    const pools = store.snapshot("2026-09-05T18:25:02Z").pools;
+    expect(pools).toHaveLength(1);
+    expect(pools[0]?.windows[0]?.utilization).toBe(0.21);
+    expect(pools[0]?.windows[0]?.resets_at).toBe("2026-09-12T02:09:00.000Z");
+    // A same-generation decrease or a reversed boundary remains a conflict.
+    for (const [sequence, reset] of [[3, "2026-09-12T02:09:00Z"], [4, "2026-09-07T02:45:17Z"]] as const) {
+      const result = store.ingest(observation({ ...base, sequence, sampled_at: "2026-09-05T18:26:00Z", observed_at: "2026-09-05T18:26:00Z",
+        windows: weekly(0.1, reset) }), "2026-09-05T18:26:01Z");
+      expect(result.outcome).toBe("conflict");
+    }
+    expect(store.snapshot("2026-09-05T18:27:00Z").pools[0]?.windows[0]?.utilization).toBe(0.21);
     store.close();
   });
 

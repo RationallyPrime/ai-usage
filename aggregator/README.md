@@ -123,7 +123,7 @@ The store enforces:
 - unique observation IDs and monotonic per-profile sequences;
 - older-sample acknowledgement without replacement;
 - a default `0.005` same-generation utilization regression tolerance;
-- lower values only after a valid reset generation boundary;
+- lower values only after a valid reset generation boundary; a newer, account-bound Codex reading may establish an early quota renewal with a later reset boundary before the old window expires;
 - five-minute future-clock clamping with an explicit ACK marker;
 - exact Claude window-continuity reconciliation when identity evidence is
   stale, with provisional pools rather than destructive guessing;
