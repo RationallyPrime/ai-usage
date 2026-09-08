@@ -231,6 +231,12 @@ def _service_install(config: CollectorConfig, install_root: Path) -> tuple[str, 
             f"Description=Run AI Usage {config.provider} collector every minute",
             "",
             "[Timer]",
+            # A user-manager timer measures OnBootSec against the system boot
+            # but only fires if the manager is already up; after a reboot the
+            # user manager starts later and the trigger is missed, so the timer
+            # waited on OnUnitActiveSec forever (pop-os, 2026-09-06: 34h stale).
+            # OnStartupSec is measured against the user manager itself.
+            "OnStartupSec=15s",
             "OnBootSec=15s",
             "OnUnitActiveSec=60s",
             "AccuracySec=5s",
