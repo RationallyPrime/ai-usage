@@ -4,6 +4,7 @@ import UsageUI
 import WidgetKit
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var refreshState: UsageRefreshState = .unconfigured
     @State private var endpoint = ""
     @State private var token = ""
@@ -39,7 +40,6 @@ struct ContentView: View {
                             UsageSummaryView(
                                 snapshot: refreshState.snapshot,
                                 now: timeline.date,
-                                emptyMessage: "Connect the private feed below",
                                 style: .dashboard
                             )
                         }
@@ -57,6 +57,14 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .task { await load() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await refresh()
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { return }
+            }
+        }
     }
 
     private var backdrop: some View {
@@ -385,19 +393,7 @@ struct ContentView: View {
     }
 
     private var poolSummary: String {
-        guard let pools = refreshState.snapshot?.pools, !pools.isEmpty else {
-            return "Claude + Codex + Grok in one glance"
-        }
-
-        let claudeCount = pools.count { $0.provider == .claude }
-        let codexCount = pools.count { $0.provider == .codex }
-        let grokCount = pools.count { $0.provider == .grok }
-        let noun = pools.count == 1 ? "pool" : "pools"
-
-        if claudeCount > 0, codexCount > 0, grokCount > 0 {
-            return "\(pools.count) \(noun) · \(claudeCount) Claude · \(codexCount) Codex · \(grokCount) Grok"
-        }
-        return "\(pools.count) \(noun)"
+        "\(UsageRoster.seats.count) seats · \(UsageRoster.subscriptions.count) subscriptions"
     }
 
     private var connectionStatus: String {
@@ -472,7 +468,7 @@ struct ContentView: View {
     }
 
     private func refresh() async {
-        guard let store else { return }
+        guard let store, !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         refreshState = await store.refreshConfigured()

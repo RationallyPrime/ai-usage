@@ -55,6 +55,19 @@ class InstallerTests(unittest.TestCase):
             timeout=10,
         )
 
+    def test_grok_install_keeps_launcher_and_allows_billing_timeout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = self.environment(root, "grok", "talos")
+            launcher = root / "grok"
+            launcher.symlink_to("/usr/bin/true")
+            environment["AI_USAGE_PROVIDER_BIN"] = str(launcher)
+            self.run_installer("grok", environment)
+            path = Path(environment["AI_USAGE_GROK_HOME"]) / ".grok/ai-usage/config.json"
+            config = json.loads(path.read_text())
+            self.assertEqual(config["provider_command"], [str(launcher)])
+            self.assertEqual(config["request_timeout_seconds"], 30)
+
     def test_claude_reinstall_never_nests_and_uninstall_restores_exact_prior_object(
         self,
     ):

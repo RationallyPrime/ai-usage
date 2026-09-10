@@ -1,16 +1,26 @@
 # AI Usage
 
 AI Usage is a native iPhone/macOS app and WidgetKit extension for trustworthy
-Claude, Codex, and Grok Build quota telemetry. It keeps quota pools separate
-from the profiles and machines observing them, so account switches do not
-rename, duplicate, erase, or move usage backwards.
+Claude, Codex, and Grok Build quota telemetry. The presenter has exactly five
+manually configured seats: Fable, Gnomon, Theoros, Ariadne, and Talos.
+
+`UsageKit/Sources/UsageKit/UsageRoster.swift` is the presentation topology:
+Fable has a dedicated Personal Max 20x on the Pop!_OS laptop; Gnomon and
+Theoros share another Personal Max 20x on cx53, observed by Gnomon's collector;
+Ariadne uses the Codex cloud profile on cx53; Talos uses SuperGrok Heavy on
+cx43. Four subscription readings supply five seat entries. Changes to this
+topology are manual code/config updates, never account-discovery guesses.
+Retire superseded collector timers and their ingest allow-list entries when
+changing the deployment. Keep only Fable, Gnomon, cloud Ariadne, and Talos
+enrolled as quota collectors; Theoros displays Gnomon's shared reading.
 
 The Xcode project retains the historical `ClaudeSwifties` product name. The
 user-facing app and widget are both named **AI Usage**.
 
 ## What schema 3 models
 
-- **Pool:** one quota-bearing provider subject and one dashboard tile.
+- **Pool:** one quota-bearing provider subject. A shared pool can supply more
+  than one named seat entry.
 - **Observer profile:** a named local Claude, Codex, or Grok profile that may
   bind to a different pool after a login switch.
 - **Edge:** the machine and collector installation delivering observations.
@@ -20,8 +30,10 @@ user-facing app and widget are both named **AI Usage**.
   profiles may legitimately share one pool.
 
 A pool retains its last good values when no profile is current. Older samples,
-out-of-order retries, duplicate delivery, utilization regressions, and invalid
-reset generations cannot replace newer pool truth. Contradictory Claude
+out-of-order retries and duplicate delivery cannot replace newer pool truth.
+Claude/Codex quota regressions and invalid resets remain guarded. Grok's fresh
+credit balance can decrease within a billing period and replaces the older
+balance. Contradictory Claude
 identity evidence is retained and displayed as a conflict instead of being
 used to destructively relabel a pool.
 
@@ -47,10 +59,11 @@ exponential backoff and jitter, and deletes a file only after a 2xx response
 acknowledges that exact observation ID. A heartbeat runs at least every five
 minutes so the server can distinguish current, recent, and stale profiles.
 
-Provider credentials remain inside provider-owned clients:
+Provider reads are scoped to the configured profile:
 
-- Claude usage comes only from status-line JSON; `claude auth status --json`
-  supplies advisory non-secret identity evidence in the exact profile.
+- Claude usage comes from status-line JSON and the OAuth usage endpoint, using
+  the profile's CLI-managed access token without refreshing it;
+  `claude auth status --json` supplies advisory identity evidence.
 - Codex uses `account/read` followed by `account/rateLimits/read` through its
   app-server.
 - Grok uses `grok agent --no-leader stdio`, then `initialize`,
@@ -65,7 +78,8 @@ sent to the aggregator.
 
 ## Schema-3 read contract
 
-`GET /v3/usage` returns pools in explicit, stable presentation order:
+`GET /v3/usage` returns only the enrolled collectors' latest bound pools.
+Historical observations remain in storage but do not add presenter entries:
 
 ```json
 {
@@ -207,11 +221,12 @@ credential storage disabled. Token-bearing redirects are accepted only on the
 same HTTPS origin. Persisted non-loopback HTTP endpoints are rejected before
 the Keychain token is read.
 
-The host app renders every pool. The medium widget shows five compact pool
-rows in server order; the large widget supports at least eight. Current profile
-labels, shared-pool observers, provisional/identity-conflict warnings, stale
-last-good values, sample age, and reset countdowns are all explicit. The host
-uses a periodic timeline so age/countdowns advance while it remains open.
+The app and both widget sizes always render the same five roster entries,
+including placeholders when a reading is missing. Gnomon and Theoros share
+the same quota reading and name each other in their captions. Old pools,
+retired hosts, and cached Mac readings cannot create extra rows. Last-good
+values, sample age, and reset countdowns remain explicit. The app refreshes
+when it becomes active and every minute while open.
 
 ## Put it on an iPhone
 
@@ -262,20 +277,15 @@ release-entitlement inspection, and Gitleaks. The separately installed review
 loop requests and routes exact-head review feedback; neither green CI nor a
 scheduled nudge is itself permission to merge.
 
-## Live cutover boundary
+## Live deployment verification
 
-Repository tests cannot prove the station/deployment facts required for a real
-cutover. Before retiring schema 2 or rotating away the rollback path, capture a
-redacted schema-3 snapshot and doctor report that prove:
-
-- three distinct Claude pools survive real switches on at least two stations;
-- two profiles sharing one pool are shown together;
-- a deliberately disconnected collector later drains its queued observation;
-- Codex remains live and identity-bound;
-- Grok reports through auth/info + billing without a prompt/model turn;
-- retired read and ingest tokens fail;
-- the signed app and widget share App Group and Keychain access; and
-- no live host coordinates or credentials appear in public artifacts.
+Verify four fresh subscription collectors (`fable-linux`, `gnomon-cx53`,
+`ariadne-codex-cx53`, and `talos-cx43`) in authenticated feed/doctor readback.
+Retire the old Mac, duplicate Linux Grok, and separate Theoros quota timers.
+The presenter must show exactly the five roster entries with Gnomon and
+Theoros sharing the same values, including on cached/offline snapshots.
+Check Grok billing without creating a prompt/session, and install and launch
+both the signed app and its embedded widget on the intended iPhone.
 
 Keep live endpoints, hostnames, IP addresses, login targets, deployment paths,
 container names, and token-rotation evidence in the private operations corpus,

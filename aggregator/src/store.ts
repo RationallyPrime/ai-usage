@@ -129,7 +129,7 @@ export class UsageStore {
     }
   }
 
-  snapshot(generatedAt: string): UsageSnapshot {
+  snapshot(generatedAt: string, profileIds?: ReadonlySet<string>): UsageSnapshot {
     const generated = new Date(generatedAt).toISOString();
     const generatedMs = Date.parse(generated);
     const pools = this.db.query<PoolRow, []>(`
@@ -150,7 +150,14 @@ export class UsageStore {
     `).all();
 
     const profilesByPool = new Map<string, Map<string, PoolProfile>>();
+    const selectedProfiles = new Set<string>();
     for (const binding of bindings) {
+      // The live feed follows the enrolled profiles' latest bindings. Old
+      // sessions and retired collectors must not keep historical rows alive.
+      if (profileIds) {
+        if (!profileIds.has(binding.profile_id) || selectedProfiles.has(binding.profile_id)) continue;
+        selectedProfiles.add(binding.profile_id);
+      }
       let profiles = profilesByPool.get(binding.pool_id);
       if (!profiles) {
         profiles = new Map();
@@ -179,7 +186,7 @@ export class UsageStore {
     return {
       schema: 3,
       generated_at: generated,
-      pools: pools.map((pool): UsagePool => ({
+      pools: pools.filter((pool) => !profileIds || profilesByPool.has(pool.id)).map((pool): UsagePool => ({
         id: pool.id,
         provider: pool.provider,
         label: pool.label,
@@ -1210,6 +1217,12 @@ export class UsageStore {
     const existing = parseStoredWindows(pool.windows_json);
     if (observation.windows.length === 0) return "same";
     if (existing.length === 0) return "accept";
+
+    // Grok reports the current credit balance, which can decrease after a
+    // credit/reset without moving the weekly billing boundary. A newer
+    // provider reading is authoritative; monotonic quota inference can pin
+    // the display at 100% forever. Older/replayed samples remain rejected.
+    if (observation.provider === "grok" && incomingMs > existingMs) return "accept";
 
     for (const incoming of observation.windows) {
       const previous = existing.find((window) => window.id === incoming.id);

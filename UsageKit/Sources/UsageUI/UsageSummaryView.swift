@@ -7,65 +7,34 @@ public enum UsageSummaryStyle: Sendable {
     case widgetGrid
 }
 
-/// Pool collection shared by the widget and host app. The server's explicit
-/// order is retained on every surface; opaque IDs are never sorted locally.
+/// The same five roster entries appear in the app and both widget sizes,
+/// including before setup, while offline, and when a collector is silent.
 public struct UsageSummaryView: View {
     private let snapshot: UsageSnapshot?
     private let now: Date
-    private let maxPools: Int?
-    private let emptyMessage: String
     private let style: UsageSummaryStyle
 
-    public init(
-        snapshot: UsageSnapshot?,
-        now: Date,
-        maxPools: Int? = nil,
-        emptyMessage: String = "Open the app to configure the usage feed",
-        style: UsageSummaryStyle = .dashboard
-    ) {
+    public init(snapshot: UsageSnapshot?, now: Date, style: UsageSummaryStyle = .dashboard) {
         self.snapshot = snapshot
         self.now = now
-        self.maxPools = maxPools
-        self.emptyMessage = emptyMessage
         self.style = style
     }
 
     public var body: some View {
-        if let snapshot, !snapshot.pools.isEmpty {
-            populated(snapshot)
-        } else {
-            emptyView
-        }
-    }
-
-    @ViewBuilder
-    private func populated(_ snapshot: UsageSnapshot) -> some View {
         switch style {
-        case .dashboard:
-            VStack(alignment: .leading, spacing: 12) {
-                poolViews(in: snapshot, tileStyle: .dashboard)
-                moreLabel(for: snapshot)
-            }
-        case .compact:
-            VStack(alignment: .leading, spacing: 2) {
-                poolViews(in: snapshot, tileStyle: .compact)
-                moreLabel(for: snapshot)
+        case .dashboard, .compact:
+            VStack(alignment: .leading, spacing: style == .dashboard ? 12 : 2) {
+                ForEach(UsageRoster.seats) { seat in
+                    tile(seat, style: style == .dashboard ? .dashboard : .compact)
+                }
             }
         case .widgetGrid:
             GeometryReader { geometry in
-                let pools = visiblePools(in: snapshot)
-                let rowCount = max(1, Int(ceil(Double(pools.count) / 2)))
-                let totalSpacing = CGFloat(max(0, rowCount - 1)) * 5
-                let rowHeight = max(48, (geometry.size.height - totalSpacing) / CGFloat(rowCount))
-
-                LazyVGrid(
-                    columns: [GridItem(.flexible()), GridItem(.flexible())],
-                    alignment: .leading,
-                    spacing: 5
-                ) {
-                    ForEach(pools) { pool in
-                        PoolTile(pool: pool, now: now, style: .widgetCard)
-                            .frame(height: rowHeight)
+                let rows = Int(ceil(Double(UsageRoster.seats.count) / 2))
+                let rowHeight = max(48, (geometry.size.height - CGFloat(rows - 1) * 5) / CGFloat(rows))
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
+                    ForEach(UsageRoster.seats) { seat in
+                        tile(seat, style: .widgetCard).frame(height: rowHeight)
                     }
                 }
             }
@@ -73,49 +42,33 @@ public struct UsageSummaryView: View {
     }
 
     @ViewBuilder
-    private func poolViews(in snapshot: UsageSnapshot, tileStyle: PoolTileStyle) -> some View {
-        ForEach(visiblePools(in: snapshot)) { pool in
-            PoolTile(pool: pool, now: now, style: tileStyle)
-        }
-    }
-
-    @ViewBuilder
-    private func moreLabel(for snapshot: UsageSnapshot) -> some View {
-        if let maxPools, snapshot.pools.count > maxPools {
-            Text("+\(snapshot.pools.count - maxPools) more in the app")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.38))
-        }
-    }
-
-    private var emptyView: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "waveform.path.ecg")
-                .font(.headline)
-                .foregroundStyle(Color.white.opacity(0.46))
-                .frame(width: 34, height: 34)
-                .background(Color.white.opacity(0.06), in: Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No pools yet")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.82))
-                Text(emptyMessage)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.44))
+    private func tile(_ seat: UsageSeat, style: PoolTileStyle) -> some View {
+        if let pool = seat.pool(in: snapshot) {
+            PoolTile(pool: pool, now: now, style: style, seat: seat)
+        } else {
+            VStack(alignment: .leading, spacing: style == .compact ? 0 : 5) {
+                HStack {
+                    Text(seat.name).fontWeight(.semibold).foregroundStyle(.white)
+                    Spacer(minLength: 2)
+                    Text("No reading").foregroundStyle(.white.opacity(0.5))
+                }
+                if style == .dashboard {
+                    Text(seat.subscription.plan)
+                        .foregroundStyle(UsageTheme.accent(for: seat.subscription.provider))
+                }
+                Text(seat.locationSummary).foregroundStyle(.white.opacity(0.5))
             }
+            .font(style == .compact ? .system(size: 8, design: .rounded) : .caption)
+            .padding(.horizontal, style == .compact ? 5 : 15)
+            .padding(.vertical, style == .compact ? 1 : 15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(UsageTheme.card, in: RoundedRectangle(cornerRadius: style == .compact ? 7 : 19))
+            .accessibilityElement(children: .combine)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(UsageTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func visiblePools(in snapshot: UsageSnapshot) -> [UsagePool] {
-        UsagePoolSelection.pools(from: snapshot, capacity: maxPools)
     }
 }
 
-#Preview("Claude + Codex + Grok") {
+#Preview("Five seats") {
     UsageSummaryView(snapshot: .sample(now: Date()), now: Date())
         .padding()
         .background(UsageTheme.canvas)
