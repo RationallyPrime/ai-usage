@@ -59,9 +59,6 @@ private struct UsageWidgetView: View {
                 UsageSummaryView(
                     snapshot: entry.snapshot,
                     now: timeline.date,
-                    maxPools: family == .systemMedium
-                        ? UsagePoolSelection.mediumCapacity
-                        : UsagePoolSelection.largeCapacity,
                     style: family == .systemMedium ? .compact : .widgetGrid
                 )
             }
@@ -94,8 +91,8 @@ private struct UsageWidgetView: View {
 
             Spacer()
 
-            if let count = entry.snapshot?.pools.count {
-                Text("\(count) \(count == 1 ? "pool" : "pools")")
+            Group {
+                Text("\(UsageRoster.seats.count) seats")
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.38))
             }
@@ -135,7 +132,7 @@ struct UsageWidget: Widget {
             UsageWidgetView(entry: entry)
         }
         .configurationDisplayName("AI usage")
-        .description("Claude, Codex, and Grok quota pools with current profiles.")
+        .description("Fable, Gnomon, Theoros, Ariadne, and Talos subscription usage.")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

@@ -13,7 +13,7 @@ const BEARER_PATTERN = /^Bearer ([\x21-\x7e]{16,512})$/;
 
 export interface ServerStore {
   ingest(observation: UsageObservation, receivedAt: string): IngestResult;
-  snapshot(generatedAt: string): UsageSnapshot;
+  snapshot(generatedAt: string, profileIds?: ReadonlySet<string>): UsageSnapshot;
   probeReady(at: string): void;
   conflictCount(): number;
   recordIdentityKeyMismatch(
@@ -261,7 +261,9 @@ export function createApp(options: AppOptions): UsageApp {
       if (request.method === "GET" && url.pathname === "/v3/usage") {
         const auth = authenticateRead(request, clientKey, currentMs);
         if (!auth.authorised) return unauthorised(auth.rateLimited, options.invalidAuthWindowMs);
-        return json(options.store.snapshot(currentIso));
+        return json(options.store.snapshot(currentIso, new Set(
+          options.edgeCredentials.flatMap((credential) => [...credential.profileIds]),
+        )));
       }
 
       if (request.method === "POST" && url.pathname === "/v3/observations") {

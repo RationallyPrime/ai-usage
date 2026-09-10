@@ -1261,6 +1261,40 @@ describe("UsageStore schema-3 reconciliation", () => {
     db.close();
   });
 
+  test("a fresh Grok credit correction replaces 100 percent without moving the reset", async () => {
+    const { store } = await freshStore();
+    store.ingest(observation({provider: "grok", sequence: 1, windows: windows(1)}), "2026-08-15T15:30:01Z");
+    const result = store.ingest(observation({
+      provider: "grok", sequence: 2, windows: windows(0.03),
+      observed_at: "2026-08-15T15:31:00Z", sampled_at: "2026-08-15T15:31:00Z",
+    }), "2026-08-15T15:31:01Z");
+    expect(result.outcome).toBe("accepted");
+    expect(store.snapshot("2026-08-15T15:32:00Z").pools[0]?.windows[0]?.utilization).toBe(0.03);
+    const replay = store.ingest(observation({provider: "grok", sequence: 3, windows: windows(1)}), "2026-08-15T15:32:01Z");
+    expect(replay.outcome).toBe("ignored");
+    expect(store.snapshot("2026-08-15T15:33:00Z").pools[0]?.windows[0]?.utilization).toBe(0.03);
+    store.close();
+  });
+
+  test("the live projection excludes retired profiles and a profile's old session bindings", async () => {
+    const { store } = await freshStore();
+    store.ingest(observation({profile_id: "active", session_id: "old", sequence: 1}), "2026-08-15T15:30:01Z");
+    store.ingest(observation({
+      profile_id: "active", session_id: "new", sequence: 2, provider_subject: SUBJECT_B,
+      observed_at: "2026-08-15T15:31:00Z", sampled_at: "2026-08-15T15:31:00Z",
+      windows: windows(0.9, "2026-08-15T20:00:00Z"),
+    }), "2026-08-15T15:31:01Z");
+    store.ingest(observation({profile_id: "retired", provider_subject: SUBJECT_C}), "2026-08-15T15:30:01Z");
+    const all = store.snapshot("2026-08-15T15:32:00Z");
+    expect(all.pools.length).toBeGreaterThan(1);
+    const live = store.snapshot("2026-08-15T15:32:00Z", new Set(["active"]));
+    expect(live.pools).toHaveLength(1);
+    expect(live.pools[0]?.profiles.map(p => p.id)).toEqual(["active"]);
+    expect(live.pools[0]?.windows[0]?.utilization).toBe(0.9);
+    expect(store.snapshot("2026-08-15T15:32:00Z", new Set()).pools).toHaveLength(0);
+    store.close();
+  });
+
   test("billing unavailable updates status while preserving Grok's last good windows", async () => {
     const { store } = await freshStore();
     store.ingest(observation({

@@ -183,6 +183,19 @@ class GrokProviderTests(unittest.TestCase):
         self.assertEqual(absent.status, "billing_unavailable")
         self.assertEqual(absent.windows, [])
 
+    def test_grok_proto_zero_and_over_limit_match_upstream_billing_semantics(self):
+        zero = grok_reading({"teamId": "team"}, {"config": {
+            "monthlyLimit": {"val": 10000}, "used": {}
+        }}, b"k" * 32)
+        self.assertEqual(zero.status, "ok")
+        self.assertEqual(zero.windows[0].utilization, 0)
+        over = grok_reading({"teamId": "team"}, {
+            "subscription_tier": "SuperGrok Heavy",
+            "config": {"creditUsagePercent": 150}
+        }, b"k" * 32)
+        self.assertEqual(over.windows[0].utilization, 1)
+        self.assertEqual(over.pool_label, "Grok · SuperGrok Heavy")
+
     def test_preferred_monthly_current_period_uses_its_exact_boundaries(self):
         reading = grok_reading(
             {"organizationId": "org"},

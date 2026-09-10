@@ -7,17 +7,18 @@ public enum PoolTileStyle: Sendable {
     case widgetCard
 }
 
-/// One quota-bearing pool. Profile labels are data supplied by observer
-/// configuration; opaque pool IDs never double as presentation aliases.
+/// A named seat displaying its configured subscription reading.
 public struct PoolTile: View {
     private let pool: UsagePool
     private let now: Date
     private let style: PoolTileStyle
+    private let seat: UsageSeat
 
-    public init(pool: UsagePool, now: Date, style: PoolTileStyle = .dashboard) {
+    public init(pool: UsagePool, now: Date, style: PoolTileStyle = .dashboard, seat: UsageSeat) {
         self.pool = pool
         self.now = now
         self.style = style
+        self.seat = seat
     }
 
     private var state: PoolTileState { pool.tileState(now: now) }
@@ -44,10 +45,6 @@ public struct PoolTile: View {
     private var dashboardTile: some View {
         VStack(alignment: .leading, spacing: 13) {
             dashboardHeader
-
-            if let warning = identityWarning {
-                warningView(warning.title, icon: warning.icon, tint: warning.tint)
-            }
 
             if state.showsNumbers, !pool.windows.isEmpty {
                 VStack(spacing: 12) {
@@ -78,7 +75,7 @@ public struct PoolTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 19, style: .continuous)
-                .stroke(identityWarning == nil ? UsageTheme.border : warningTint.opacity(0.40), lineWidth: 1)
+                .stroke(UsageTheme.border, lineWidth: 1)
         }
     }
 
@@ -87,12 +84,12 @@ public struct PoolTile: View {
             providerBadge(size: 34, iconSize: 13)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(pool.label)
+                Text(seat.name)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(providerName)
+                Text(seat.subscription.plan)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(accent.opacity(0.92))
             }
@@ -127,64 +124,24 @@ public struct PoolTile: View {
         }
     }
 
-    @ViewBuilder
     private var dashboardProfiles: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("PROFILES")
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.36))
-
-            if displayProfiles.isEmpty {
-                Text("No profile has been linked to this pool")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.42))
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)],
-                    alignment: .leading,
-                    spacing: 6
-                ) {
-                    ForEach(displayProfiles) { profile in
-                        Label(
-                            profile.label,
-                            systemImage: profile.effectiveState(now: now) == .current
-                                ? "person.crop.circle.fill"
-                                : "clock.fill"
-                        )
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(
-                                .white.opacity(
-                                    profile.effectiveState(now: now) == .current ? 0.72 : 0.48
-                                )
-                            )
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(accent.opacity(0.11), in: Capsule())
-                    }
-                }
-            }
-        }
+        Text(seat.locationSummary)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.white.opacity(0.55))
     }
 
-    /// Twenty-point rows let a medium widget show the expected five pools.
+    /// Compact rows fit the fixed five seats in the medium widget.
     private var compactTile: some View {
         HStack(spacing: 5) {
             providerBadge(size: 16, iconSize: 7)
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 3) {
-                    Text(pool.label)
+                    Text(seat.name)
                         .font(.system(size: 9, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
-                    if identityWarning != nil {
-                        Text(identityCompactLabel)
-                            .font(.system(size: 6, weight: .bold, design: .rounded))
-                            .foregroundStyle(warningTint)
-                    }
                 }
 
                 Text(compactProfileAndAgeText)
@@ -234,17 +191,12 @@ public struct PoolTile: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 providerBadge(size: 19, iconSize: 8)
-                Text(pool.label)
+                Text(seat.name)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Spacer(minLength: 1)
-                if identityWarning != nil {
-                    Text(identityCompactLabel)
-                        .font(.system(size: 6, weight: .bold, design: .rounded))
-                        .foregroundStyle(warningTint)
-                }
             }
 
             Text(compactProfileAndAgeText)
@@ -285,7 +237,7 @@ public struct PoolTile: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(identityWarning == nil ? Color.white.opacity(0.08) : warningTint.opacity(0.40))
+                .stroke(Color.white.opacity(0.08))
         }
     }
 
@@ -317,7 +269,7 @@ public struct PoolTile: View {
                 .foregroundStyle(.white)
         }
         .frame(width: size, height: size)
-        .accessibilityLabel(providerName)
+        .accessibilityLabel(seat.subscription.plan)
     }
 
     @ViewBuilder
@@ -364,16 +316,6 @@ public struct PoolTile: View {
         .background(Color.white.opacity(0.06), in: Capsule())
     }
 
-    private func warningView(_ title: String, icon: String, tint: Color) -> some View {
-        Label(title, systemImage: icon)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
-    }
-
     private var unavailableView: some View {
         HStack(spacing: 9) {
             Image(systemName: "exclamationmark.triangle")
@@ -389,41 +331,8 @@ public struct PoolTile: View {
         }
     }
 
-    private var identityWarning: (title: String, icon: String, tint: Color)? {
-        switch pool.identityState {
-        case .verified: nil
-        case .provisional:
-            ("Provisional pool · awaiting identity confirmation", "questionmark.diamond.fill", .orange)
-        case .conflict:
-            ("Identity conflict · contradictory evidence kept separate", "exclamationmark.triangle.fill", .red)
-        case .unknown:
-            ("Unknown identity state", "questionmark.circle.fill", .gray)
-        }
-    }
-
-    private var warningTint: Color { identityWarning?.tint ?? .clear }
-
-    private var identityCompactLabel: String {
-        switch pool.identityState {
-        case .verified: ""
-        case .provisional: "PROV"
-        case .conflict: "CONFLICT"
-        case .unknown: "ID?"
-        }
-    }
-
-    private var compactProfileText: String {
-        let labels = displayProfiles.map(\.label)
-        if labels.isEmpty { return "No linked profile" }
-        return labels.joined(separator: " + ")
-    }
-
     private var compactProfileAndAgeText: String {
-        "\(compactProfileText) · \(UsageFormat.age(pool.age(now: now)))"
-    }
-
-    private var displayProfiles: [ObserverProfile] {
-        pool.profilesForDisplay(now: now)
+        "\(seat.locationSummary) · \(UsageFormat.age(pool.age(now: now)))"
     }
 
     private func meterTextColor(for fraction: Double) -> Color {
@@ -478,15 +387,6 @@ public struct PoolTile: View {
         }
     }
 
-    private var providerName: String {
-        switch pool.provider {
-        case .claude: "Claude"
-        case .codex: "Codex"
-        case .grok: "Grok Build"
-        case .unknown: "Usage provider"
-        }
-    }
-
     private var providerIcon: String {
         switch pool.provider {
         case .claude: "sparkles"
@@ -500,8 +400,10 @@ public struct PoolTile: View {
 #Preview("Pool dashboard") {
     ScrollView {
         VStack(spacing: 12) {
-            ForEach(UsageSnapshot.sample(now: .now).pools) { pool in
-                PoolTile(pool: pool, now: .now)
+            ForEach(UsageRoster.seats) { seat in
+                if let pool = seat.pool(in: .sample(now: .now)) {
+                    PoolTile(pool: pool, now: .now, seat: seat)
+                }
             }
         }
         .padding()

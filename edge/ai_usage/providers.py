@@ -304,7 +304,8 @@ def read_codex(config: CollectorConfig) -> ProviderReading:
 
 def _cent_value(value: Any) -> float | None:
     if isinstance(value, dict):
-        value = value.get("val")
+        # Grok's proto3 Cent omits a zero-valued scalar ({} means zero).
+        value = value.get("val", 0)
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, float))
@@ -359,9 +360,9 @@ def grok_reading(
         isinstance(percentage, (int, float))
         and not isinstance(percentage, bool)
         and math.isfinite(float(percentage))
-        and 0 <= percentage <= 100
+        and percentage >= 0
     ):
-        utilization = float(percentage) / 100
+        utilization = min(1.0, float(percentage) / 100)
     elif percentage is None:
         limit = _cent_value(raw_config.get("monthlyLimit"))
         used = _cent_value(raw_config.get("used"))
@@ -390,7 +391,7 @@ def read_grok(config: CollectorConfig) -> ProviderReading:
     # This exact sequence intentionally creates no session, sends no prompt,
     # invokes no tool, and never calls the bearer-token method. The x.ai
     # extension methods are underscore-prefixed on the wire (ACP extension
-    # convention, verified against grok 1.0.4); the bare names answer
+    # convention, verified against grok 1.0.13); the bare names answer
     # JSON-RPC -32601.
     command = [*config.provider_command, "agent", "--no-leader", "stdio"]
     with JsonLineProcess(

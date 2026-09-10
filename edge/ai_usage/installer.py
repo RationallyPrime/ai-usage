@@ -67,7 +67,9 @@ def _provider_command(provider: str) -> str:
     resolved = shutil.which(configured or provider)
     if resolved is None:
         raise CollectorError(f"{provider} was not found; set AI_USAGE_PROVIDER_BIN")
-    return str(Path(resolved).resolve())
+    # Keep the stable launcher through CLI updates; resolving its current
+    # versioned target can pin a collector to a subsequently deleted binary.
+    return str(Path(resolved).absolute())
 
 
 def _raw_config(provider: str, path: Path, manifest_path: Path) -> dict[str, Any]:
@@ -102,7 +104,7 @@ def _raw_config(provider: str, path: Path, manifest_path: Path) -> dict[str, Any
             os.environ.get("AI_USAGE_SAMPLE_POLL_SECONDS", "300")
         ),
         "request_timeout_seconds": int(
-            os.environ.get("AI_USAGE_REQUEST_TIMEOUT_SECONDS", "15")
+            os.environ.get("AI_USAGE_REQUEST_TIMEOUT_SECONDS", "30" if provider == "grok" else "15")
         ),
         "spool_max_count": int(os.environ.get("AI_USAGE_SPOOL_MAX_COUNT", "512")),
         "spool_max_bytes": int(

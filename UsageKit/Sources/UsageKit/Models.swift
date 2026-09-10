@@ -191,18 +191,3 @@ public struct UsageWindow: Codable, Sendable, Equatable, Identifiable {
 
     public var fraction: Double { min(max(utilization, 0), 1) }
 }
-
-/// Pure, testable capacity selection shared with WidgetKit. Prefix selection
-/// intentionally respects explicit server order rather than generated IDs.
-public enum UsagePoolSelection {
-    public static let mediumCapacity = 5
-    public static let largeCapacity = 8
-
-    public static func pools(
-        from snapshot: UsageSnapshot,
-        capacity: Int? = nil
-    ) -> [UsagePool] {
-        guard let capacity else { return snapshot.pools }
-        return Array(snapshot.pools.prefix(max(0, capacity)))
-    }
-}
